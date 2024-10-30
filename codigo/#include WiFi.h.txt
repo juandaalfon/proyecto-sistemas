@@ -1,0 +1,75 @@
+#include <WiFi.h>
+#include <WebSocketsServer.h>
+
+const char* ssid = "TU_SSID";
+const char* password = "TU_CONTRASEÑA";
+
+WebSocketsServer webSocket = WebSocketsServer(81);
+
+const int soundSensorPin = 34; // Pin del sensor KY-038
+const int greenLedPin = 18;    // LED verde
+const int redLedPin = 19;      // LED rojo
+
+unsigned long soundStartTime = 0;
+unsigned long currentMillis = 0;
+bool highSoundDetected = false;
+
+const int soundThreshold = 500;    // Ajusta este valor según la sensibilidad
+const int soundDurationLimit = 300000; // 5 minutos en milisegundos
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(soundSensorPin, INPUT);
+  pinMode(greenLedPin, OUTPUT);
+  pinMode(redLedPin, OUTPUT);
+
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("Conectado al WiFi");
+
+  webSocket.begin();
+  webSocket.onEvent(webSocketEvent);
+
+  digitalWrite(greenLedPin, HIGH); // Empieza en verde
+  digitalWrite(redLedPin, LOW);
+}
+
+void loop() {
+  webSocket.loop();
+
+  int soundValue = analogRead(soundSensorPin);
+  currentMillis = millis();
+
+  if (soundValue > soundThreshold) {
+    if (!highSoundDetected) {
+      highSoundDetected = true;
+      soundStartTime = currentMillis;
+    } else if (currentMillis - soundStartTime >= soundDurationLimit) {
+      changeTrafficLightState(false); // Cambia a rojo
+    }
+  } else {
+    highSoundDetected = false;
+    changeTrafficLightState(true); // Mantiene en verde
+  }
+}
+
+void changeTrafficLightState(bool isGreen) {
+  if (isGreen) {
+    digitalWrite(greenLedPin, HIGH);
+    digitalWrite(redLedPin, LOW);
+    webSocket.broadcastTXT("GREEN");
+  } else {
+    digitalWrite(greenLedPin, LOW);
+    digitalWrite(redLedPin, HIGH);
+    webSocket.broadcastTXT("RED");
+  }
+}
+
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
+  if (type == WStype_TEXT) {
+    Serial.printf("[%u] Mensaje: %s\n", num, payload);
+  }
+}
